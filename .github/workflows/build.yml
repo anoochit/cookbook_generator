@@ -3,8 +3,12 @@ name: Build
 on:
   push:
     branches: ["master"]
+    tags: ["v*"]
   pull_request:
     branches: ["master"]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -47,11 +51,36 @@ jobs:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: cargo build --release --target ${{ matrix.target }}
 
+      - name: Prepare Artifacts
+        shell: bash
+        run: |
+          mkdir -p staging
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            cp "target/${{ matrix.target }}/release/cookbook_generator.exe" "staging/cookbook_generator-${{ matrix.target }}.exe"
+          else
+            cp "target/${{ matrix.target }}/release/cookbook_generator" "staging/cookbook_generator-${{ matrix.target }}"
+          fi
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: cookbook_generator-${{ matrix.target }}
-          path: |
-            target/${{ matrix.target }}/release/cookbook_generator
-            target/${{ matrix.target }}/release/cookbook_generator.exe
-          if-no-files-found: ignore
+          path: staging/*
+
+  release:
+    name: Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
