@@ -1,5 +1,7 @@
 # Cookbook Generator
 
+**Note: You MUST use this script with the cookbook template at https://github.com/anoochit/cookbook_template**
+
 This is a command-line tool for generating cookbooks from markdown chapters. It produces EPUB and PDF formats.
 
 ## Prerequisites
