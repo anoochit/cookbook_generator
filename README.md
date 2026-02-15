@@ -63,3 +63,7 @@ cookbook_generator build [OPTIONS]
     ```bash
     ./dist/windows/cookbook_generator.exe build
     ```
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
