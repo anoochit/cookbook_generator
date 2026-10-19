@@ -124,6 +124,7 @@ fn build(args: BuildArgs) -> Result<()> {
             "-o",
             "build/ebook.epub",
             "--top-level-division=chapter",
+            "--toc-depth=2",
             "--epub-cover-image=images/cover.png",
             "--css=epub.css",
             "-i",
@@ -182,6 +183,7 @@ fn build(args: BuildArgs) -> Result<()> {
             "-o",
             "build/output.epub",
             "--top-level-division=chapter",
+            "--toc-depth=2",
             "--css=epub.css",
             "build/pdf_input.md",
         ],
@@ -280,78 +282,98 @@ fn build(args: BuildArgs) -> Result<()> {
 
     println!("Total number of pages: {}", page_count);
 
-    let split_page_number = if args.skip_prompts {
-        1
-    } else {
-        read_input("Enter the page number to split at: ")?.parse()?
-    };
-
-    run_command(
-        "pdfcpu",
-        &[
-            "split",
-            "-m",
-            "page",
-            pdf_path,
-            "build/",
-            &split_page_number.to_string(),
-        ],
-    )?;
-
-    let end_page = split_page_number;
-    let pdf_file_path_to_stamp = format!("build/output_1-{}.pdf", end_page - 1);
-    let stamped_output_path = format!("build/output_stamp_1-{}.pdf", end_page - 1);
-
-    run_command(
-        "pdfcpu",
-        &[
-            "stamp",
-            "add",
-            "-mode",
-            "text",
-            "--",
-            "%p",
-            "points:14,scale:1.0 abs,pos:br,rot:0,ma:60",
-            &pdf_file_path_to_stamp,
-            &stamped_output_path,
-        ],
-    )?;
-
-    let merged_file_path = "build/ebook.pdf";
     let cover_file_path = "images/cover.pdf";
-    let preface_file_path = "build/preface.pdf";
-    let output_path_split = format!("build/output_{}-{}.pdf", split_page_number, page_count);
-    let back_cover_path = "images/back_cover.pdf";
-
-    run_command(
-        "pdfcpu",
-        &[
-            "merge",
-            merged_file_path,
-            cover_file_path,
-            preface_file_path,
-            &output_path_split,
-            &stamped_output_path,
-            back_cover_path,
-        ],
-    )?;
-
-    let page_to_remove = if args.skip_prompts {
-        1
+    let back_cover_path = if Path::new("images/back_cover.pdf").exists() {
+        "images/back_cover.pdf"
+    } else if Path::new("images/cover_back.pdf").exists() {
+        "images/cover_back.pdf"
     } else {
-        read_input("Enter the page number to remove: ")?.parse()?
+        return Err(anyhow!(
+            "Could not find a back cover PDF in images/ (expected back_cover.pdf or cover_back.pdf)"
+        ));
     };
+    let merged_file_path = "build/ebook.pdf";
 
-    run_command(
-        "pdfcpu",
-        &[
-            "pages",
-            "rem",
-            "-pages",
-            &page_to_remove.to_string(),
-            merged_file_path,
-        ],
-    )?;
+    if args.skip_prompts {
+        println!("Skipping interactive page prompts; assembling the full book...");
+        run_command(
+            "pdfcpu",
+            &[
+                "merge",
+                merged_file_path,
+                cover_file_path,
+                "build/preface.pdf",
+                pdf_path,
+                back_cover_path,
+            ],
+        )?;
+    } else {
+        let split_page_number: i32 = read_input("Enter the page number to split at: ")?.parse()?;
+        if split_page_number < 2 || split_page_number >= page_count {
+            return Err(anyhow!(
+                "Split page must be between 2 and {}",
+                page_count - 1
+            ));
+        }
+
+        run_command(
+            "pdfcpu",
+            &[
+                "split",
+                "-m",
+                "page",
+                pdf_path,
+                "build/",
+                &split_page_number.to_string(),"--force",
+            ],
+        )?;
+
+        let front_part = if split_page_number - 1 == 1 {
+            "build/output_1.pdf"
+        } else {
+            &format!("build/output_1-{}.pdf", split_page_number - 1)
+        };
+        let stamped_output_path = format!("build/output_stamp_1-{}.pdf", split_page_number - 1);
+
+        run_command(
+            "pdfcpu",
+            &[
+                "stamp",
+                "add",
+                "%p",
+                "pos:br, points:14, scale:1.0 abs, rot:0, margins:60",
+                front_part,
+                &stamped_output_path,"--force",
+            ],
+        )?;
+
+        let output_path_split = format!("build/output_{}-{}.pdf", split_page_number, page_count);
+
+        run_command(
+            "pdfcpu",
+            &[
+                "merge",
+                merged_file_path,
+                cover_file_path,
+                "build/preface.pdf",
+                &output_path_split,
+                &stamped_output_path,
+                back_cover_path,
+            ],
+        )?;
+
+        let page_to_remove: i32 = read_input("Enter the page number to remove: ")?.parse()?;
+        run_command(
+            "pdfcpu",
+            &[
+                "pages",
+                "remove",
+                "--pages",
+                &page_to_remove.to_string(),
+                merged_file_path,
+            ],
+        )?;
+    }
 
     println!("Optimize PDFs...");
 
@@ -365,7 +387,7 @@ fn build(args: BuildArgs) -> Result<()> {
         "pdfcpu",
         &[
             "trim",
-            "-pages",
+            "--pages",
             &page_range,
             merged_file_path,
             "build/sample_ebook.pdf",
